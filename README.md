@@ -1,11 +1,14 @@
-[![CI](https://github.com/asgersvenning/trap-schema/actions/workflows/ci.yaml/badge.svg)](https://github.com/asgersvenning/trap-schema/actions/workflows/ci.yaml)
+[![PyPI version](https://img.shields.io/pypi/v/trap-schema.svg)](https://pypi.org/project/trap-schema/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/trap-schema.svg)](https://pypi.org/project/trap-schema/)
+[![CI Status](https://github.com/asgersvenning/trap-schema/actions/workflows/ci.yaml/badge.svg)](https://github.com/asgersvenning/trap-schema/actions)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 # trap-schema
 
 An unofficial, strictly-typed implementation of the [Camtrap DP 1.0.2](https://camtrap-dp.tdwg.org/) datapackage standard. 
 
-`trap-schema` uses Python dataclasses and Pydantic to provide robust, schema-aware data structures. It is designed to help developers easily parse, validate, and export camera trap data into the official Frictionless Data format without second-guessing schema constraints
-or having the documentation open on a second monitor.
+`trap-schema` uses Python dataclasses and Pydantic to provide robust, schema-aware data structures. It is designed to help developers easily parse, validate, and export camera trap data into the official Frictionless Data format without second-guessing schema constraints or having the documentation open on a second monitor.
 
 ## Features
 
@@ -15,18 +18,12 @@ or having the documentation open on a second monitor.
 
 ## Installation
 
-This project uses [`uv`](https://github.com/astral-sh/uv) for fast and reliable package management. Requires Python 3.14+.
+This project uses [`uv`](https://github.com/astral-sh/uv) for fast and reliable package management.
 
 To add `trap-schema` to your project:
 
 ```bash
-uv add git+https://github.com/asgersvenning/trap-schema.git
-```
-
-To install a specific release (e.g. `v0.1.0`):
-
-```bash
-uv add git+https://github.com/asgersvenning/trap-schema.git@v0.1.0
+uv add trap-schema
 ```
 
 ## Quick Start
@@ -53,7 +50,7 @@ table.save("out_dir")
 ## Development
 
 ```bash
-git clone [https://github.com/asgersvenning/trap-schema.git](https://github.com/asgersvenning/trap-schema.git)
+git clone https://github.com/asgersvenning/trap-schema.git
 cd trap-schema
 uv sync --all-groups
 ```
