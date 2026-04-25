@@ -1,7 +1,9 @@
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
+
+from pydantic import Field, model_validator
 
 from trap_schema.fields import GeoJSONWrapper, IsoTimestamp
 from trap_schema.schema import SerializableModel
@@ -57,7 +59,8 @@ class License(SerializableModel):
     title : str | None=None
     scope : Literal["data", "media"]
 
-    def __post_init__(self):
+    @model_validator(mode="after")
+    def has_descriptor(self):
         if self.name is None and self.path is None:
             raise TypeError('Either `name` or `path` should be specified.')
 
@@ -103,12 +106,12 @@ class DataPackage(SerializableModel):
         name: See [Data Package specification](https://specs.frictionlessdata.io/data-package/#name).
 
     """
-    resources : list[Resource]=field(default_factory=standard_resources, init=False)
+    resources : list[Resource]=Field(default_factory=standard_resources, init=False)
     """See [Data Package specification](https://specs.frictionlessdata.io/data-package/#resource-information). 
     Camtrap DP further requires each object to be a [Tabular Data Resource](https://specs.frictionlessdata.io/tabular-data-resource/) with a specific `name` and `schema`. 
     See [Data](https://camtrap-dp.tdwg.org/data) for the requirements for those resources.
     """
-    profile : str=field(default="https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/camtrap-dp-profile.json", init=False)
+    profile : str=Field(default="https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/camtrap-dp-profile.json", init=False)
     name : str | None=None
     id : str | None=None
     created : IsoTimestamp

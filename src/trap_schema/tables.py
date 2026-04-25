@@ -1,67 +1,28 @@
-
 import csv
 import io
 import os
-import re
 import types
-from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields
-from typing import Any, Literal, TypeVar, get_args, get_origin, get_type_hints
+from typing import Annotated, Literal, TypeVar, get_args, get_origin, get_type_hints
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from trap_schema.fields import IsoTimestamp, TableJSON
 
 
 @dataclass(kw_only=True)
 class AbstractTableRow(BaseModel):
-    def constrain_numeric_attr(self, attr : str, min : float | int | None, max : float | int | None, required : bool):
-        value : Any | float | int | None = getattr(self, attr)
-        if not required and value is None:
-            return True
-        if value is None:
-            raise ValueError(f'Required field `{attr}={value}`.')
-        if not isinstance(value, (float, int)):
-            raise TypeError(f'Cannot constrain `{min} <= {type(value)} <= {max}, for field `{attr}`.')
-        not_in_range = False
-        if min is not None and min > value:
-            not_in_range = True
-        if max is not None and max < value:
-            not_in_range = True
-        if not_in_range:
-            raise ValueError(f'Field should be (inclusive) between {min} and {max}, but found `{attr}={value}`.')
-        return True
-    
-    def match_str_attr(self, attr : str, pattern : str | re.Pattern, required : bool):
-        value : Any | None = getattr(self, attr)
-        if not required and value is None:
-            return True
-        if value is None:
-            raise ValueError(f'Required field `{attr}={value}`.')
-        if isinstance(pattern, str):
-            pattern = re.compile(pattern)
-        if not isinstance(value, str):
-            raise TypeError(f'Cannot constrain `{type(value)}: {value}` to match pattern: {pattern}, for field `{attr}`.')
-        if value is not None and not re.match(pattern, value):
-            raise ValueError(
-                f'Supplied `{attr}="{value}"` does not match required pattern `{pattern}`.'
-            )
-        return True
-
-    def check_attributes(self, func : Callable[[Any], bool], attrs : Sequence[str]):
-        return [attr for attr in attrs if not func(getattr(self, attr))]
-
     @classmethod
     def fields(cls):
         return list(cls.__dataclass_fields__.keys())
-    
+
     @property
     def data(self):
-        return {k : getattr(self, k) for k in self.fields()}
-    
-    def to_row(self, sep : str=","):
+        return {k: getattr(self, k) for k in self.fields()}
+
+    def to_row(self, sep: str = ","):
         row_values = []
         for k in self.fields():
             val = getattr(self, k)
@@ -75,7 +36,7 @@ class AbstractTableRow(BaseModel):
             else:
                 row_values.append(str(val))
         return sep.join(row_values)
-    
+
     @classmethod
     def from_row(cls, row: str, sep: str = ",", headers: list[str] | None = None):
         """
@@ -93,7 +54,7 @@ class AbstractTableRow(BaseModel):
         data = dict(zip(field_names, parsed_values))
 
         return cls.from_dict(data)
-    
+
     @classmethod
     def from_dict(cls, data: dict):
         hints = get_type_hints(cls)
@@ -137,42 +98,39 @@ class AbstractTableRow(BaseModel):
                 raise ValueError(f"Failed to parse '{raw_value}' as {field_type} for field '{field_def.name}': {e}")
 
         return cls(**init_kwargs)
-    
-    def to_header(self, sep : str=","):
+
+    def to_header(self, sep: str = ","):
         return sep.join(self.fields())
 
+
 K = TypeVar("K")
+
 
 @dataclass(kw_only=True)
 class AbstractTable[K: AbstractTableRow](BaseModel):
     rows: list[K] = field(default_factory=list)
-    
+
     @property
     def unique_fields(self) -> tuple[str, ...]:
-        raise NotImplementedError(f'`unique_fields` not implemented for {self}')
+        raise NotImplementedError(f"`unique_fields` not implemented for {self}")
 
     @classmethod
     def get_row_cls(cls) -> type[K]:
-        raise NotImplementedError(f'`get_row_cls` not implemented for {cls}')
-    
+        raise NotImplementedError(f"`get_row_cls` not implemented for {cls}")
+
     def __len__(self):
         return len(self.rows)
 
     def __post_init__(self):
         if len(self.rows) == 0:
-            raise ValueError(
-                'No row data supplied to table. At least one row must be supplied'
-            )
-        
+            raise ValueError("No row data supplied to table. At least one row must be supplied")
+
         expected_cls = self.get_row_cls()
         invalid_row_types = set(type(row) for row in self.rows if not isinstance(row, expected_cls))
-        
+
         if invalid_row_types:
-            raise TypeError(
-                'Unexpected table row types supplied:\n\t' +
-                ', '.join(map(str, invalid_row_types))
-            )
-        
+            raise TypeError("Unexpected table row types supplied:\n\t" + ", ".join(map(str, invalid_row_types)))
+
         self._data = {f: [getattr(row, f) for row in self.rows] for f in expected_cls.fields()}
 
         for attr in self.unique_fields:
@@ -181,13 +139,12 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
                 raise ValueError(
                     f'Column "{attr}" must contain unique values, but found {len(unique_vals)}/{len(self)} unique values'
                 )
-            
 
     @property
     def data(self):
         return self._data
-    
-    def to_csv(self, path: str | None=None, sep: str = ",", linebreak: str = "\n"):
+
+    def to_csv(self, path: str | None = None, sep: str = ",", linebreak: str = "\n"):
         lines = [self.rows[0].to_header(sep=sep)] + [row.to_row(sep=sep) for row in self.rows]
         file = linebreak.join(lines)
         if path is None:
@@ -195,7 +152,7 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
         with open(path, "w") as f:
             f.write(file)
         return path
-    
+
     @classmethod
     def _rows_from_text(cls, text: str, sep: str = ",", linebreak: str = "\n"):
         if "\n" not in text:
@@ -210,18 +167,18 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
 
         headers = next(csv.reader(io.StringIO(lines[0]), delimiter=sep))
         row_cls = cls.get_row_cls()
-        
+
         if tuple(headers) != tuple(row_cls.fields()):
             print(f"WARNING: Columns in source CSV:\n\t{headers}\ndo not match expected rows:\n\t{row_cls.fields()}")
-        
+
         return [row_cls.from_row(line, sep=sep, headers=headers) for line in map(str.strip, lines[1:]) if line]
-    
+
     @classmethod
     def _rows_from_pandas(cls, df: pd.DataFrame):
         row_cls = cls.get_row_cls()
-            
+
         return list(map(row_cls.from_dict, df.replace({np.nan: None, pd.NA: None}).to_dict(orient="records")))
-    
+
     @classmethod
     def from_table(cls, table: str | pd.DataFrame, sep: str = ",", linebreak: str = "\n"):
         """
@@ -232,29 +189,30 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
         elif isinstance(table, pd.DataFrame):
             rows = cls._rows_from_pandas(table)
         else:
-            raise NotImplementedError(f'`from_table` not implemented for {(type(table))}.')
-                
+            raise NotImplementedError(f"`from_table` not implemented for {(type(table))}.")
+
         return cls(rows=rows)
+
 
 @dataclass(kw_only=True)
 class DeploymentRow(AbstractTableRow):
     deploymentID: str
     locationID: str | None = None
     locationName: str | None = None
-    latitude: float
-    longitude: float
-    coordinateUncertainty: int | None = None
+    latitude: Annotated[float, Field(ge=-90, le=90)]
+    longitude: Annotated[float, Field(ge=-180, le=180)]
+    coordinateUncertainty: Annotated[int | None, Field(ge=1)] = None
     deploymentStart: IsoTimestamp
     deploymentEnd: IsoTimestamp
     setupBy: str | None = None
     cameraID: str | None = None
     cameraModel: str | None = None
-    cameraDelay: int | None = None
-    cameraHeight: float | None = None
-    cameraDepth: float | None = None
-    cameraTilt: int | None = None
-    cameraHeading: int | None = None
-    detectionDistance: float | None = None
+    cameraDelay: Annotated[int | None, Field(ge=0)] = None
+    cameraHeight: Annotated[float | None, Field(ge=0)] = None
+    cameraDepth: Annotated[float | None, Field(ge=0)] = None
+    cameraTilt: Annotated[int | None, Field(ge=-90, le=90)] = None
+    cameraHeading: Annotated[int | None, Field(ge=0, le=360)] = None
+    detectionDistance: Annotated[float | None, Field(ge=0)] = None
     timestampIssues: bool | None = None
     baitUse: bool | None = None
     featureType: Literal["roadPaved", "roadDirt", "trailHiking", "trailGame", "roadUnderpass", "roadOverpass", "roadBridge", "culvert", "burrow", "nestSite", "carcass", "waterSource", "fruitingTree"] | None = None
@@ -263,32 +221,20 @@ class DeploymentRow(AbstractTableRow):
     deploymentTags: str | None = None
     deploymentComments: str | None = None
 
-    def __post_init__(self):
-        self.constrain_numeric_attr("latitude", -90, 90, True)
-        self.constrain_numeric_attr("longitude", -180, 180, True)
-        self.constrain_numeric_attr("coordinateUncertainty", 1, None, False)
-        for attr in ["cameraDelay", "cameraHeight", "cameraDepth", "detectionDistance"]:
-            self.constrain_numeric_attr(attr, 0, None, False)
-        self.constrain_numeric_attr("cameraTilt", -90, 90, False)
-        self.constrain_numeric_attr("cameraHeading", 0, 360, False)
-    
+
 @dataclass(kw_only=True)
 class MediaRow(AbstractTableRow):
     mediaID: str
     deploymentID: str
     captureMethod: Literal["activityDetection", "timeLapse"] | None = None
     timestamp: IsoTimestamp
-    filePath: str
+    filePath: Annotated[str, Field(pattern=r"^(?=^[^./~])(^((?!\.{2}).)*$).*$")]
     filePublic: bool
     fileName: str | None = None
-    fileMediatype: str
+    fileMediatype: Annotated[str, Field(pattern=r"^(image|video|audio)/.*$")]
     exifData: TableJSON | None = None
     favorite: bool | None = None
     mediaComments: str | None = None
-
-    def __post_init__(self):
-        self.match_str_attr("filePath", r'^(?=^[^./~])(^((?!\.{2}).)*$).*$', True)
-        self.match_str_attr("fileMediatype", r'^(image|video|audio)/.*$', True)
 
 
 @dataclass(kw_only=True)
@@ -303,81 +249,78 @@ class ObservationsRow(AbstractTableRow):
     observationType: Literal["animal", "human", "vehicle", "blank", "unknown", "unclassified"]
     cameraSetupType: Literal["setup", "calibration"] | None = None
     scientificName: str | None = None
-    count: int | None = None
+    count: Annotated[int | None, Field(ge=1)] = None
     lifeStage: Literal["adult", "subadult", "juvenile"] | None = None
     sex: Literal["female", "male"] | None = None
     behavior: str | None = None
     individualID: str | None = None
-    individualPositionRadius: float | None = None
-    individualPositionAngle: float | None = None
-    individualSpeed: float | None = None
-    bboxX: float | None = None
-    bboxY: float | None = None
-    bboxWidth: float | None = None
-    bboxHeight: float | None = None
+    individualPositionRadius: Annotated[float | None, Field(ge=0)] = None
+    individualPositionAngle: Annotated[float | None, Field(ge=-90, le=90)] = None
+    individualSpeed: Annotated[float | None, Field(ge=0)] = None
+    bboxX: Annotated[float | None, Field(ge=0, le=1)] = None
+    bboxY: Annotated[float | None, Field(ge=0, le=1)] = None
+    bboxWidth: Annotated[float | None, Field(ge=1e-15, le=1)] = None
+    bboxHeight: Annotated[float | None, Field(ge=1e-15, le=1)] = None
     classificationMethod: Literal["human", "machine"] | None = None
     classifiedBy: str | None = None
     classificationTimestamp: IsoTimestamp | None = None
-    classificationProbability: float | None = None
+    classificationProbability: Annotated[float | None, Field(ge=0, le=1)] = None
     observationTags: str | None = None
     observationComments: str | None = None
 
-    def __post_init__(self):
-        self.constrain_numeric_attr("count", 1, None, False)
-        self.constrain_numeric_attr("individualPositionRadius", 0, None, False)
-        self.constrain_numeric_attr("individualPositionAngle", -90, 90, False)
-        self.constrain_numeric_attr("individualSpeed", 0, None, False)
-        for attr in ("bboxX", "bboxY", "classificationProbability"):
-            self.constrain_numeric_attr(attr, 0, 1, False)
-        for attr in ("bboxWidth", "bboxHeight"):
-            self.constrain_numeric_attr(attr, 1e-15, 1, False)
 
 @dataclass(kw_only=True)
 class DeploymentTable(AbstractTable[DeploymentRow]):
     @property
     def unique_fields(self):
-        return ("deploymentID", )
+        return ("deploymentID",)
+
     @classmethod
     def get_row_cls(self):
         return DeploymentRow
-    
-    def save(self, dir : str=".", **kwargs):
+
+    def save(self, dir: str = ".", **kwargs):
         path = os.path.join(dir, "deployments.csv")
         return self.to_csv(path, **kwargs)
+
 
 @dataclass(kw_only=True)
 class MediaTable(AbstractTable[MediaRow]):
     @property
     def unique_fields(self):
-        return ("mediaID", )
+        return ("mediaID",)
+
     @classmethod
     def get_row_cls(self):
         return MediaRow
-    
-    def save(self, dir : str=".", **kwargs):
+
+    def save(self, dir: str = ".", **kwargs):
         path = os.path.join(dir, "media.csv")
         return self.to_csv(path, **kwargs)
+
 
 @dataclass(kw_only=True)
 class ObservationsTable(AbstractTable[ObservationsRow]):
     @property
     def unique_fields(self):
-        return ("observationID", )
-    
+        return ("observationID",)
+
     @classmethod
     def get_row_cls(self):
         return ObservationsRow
-    
-    def save(self, dir : str=".", **kwargs):
+
+    def save(self, dir: str = ".", **kwargs):
         path = os.path.join(dir, "observations.csv")
         return self.to_csv(path, **kwargs)
 
-TABLE_TYPES : dict[str, type[AbstractTable]] = {
-    "deployments.csv" : DeploymentTable,
-    "media.csv" : MediaTable,
-    "observations.csv" : ObservationsTable
+
+TABLE_TYPES: dict[str, type[AbstractTable]] = {
+    "deployments.csv": DeploymentTable,
+    "media.csv": MediaTable,
+    "observations.csv": ObservationsTable,
 }
 
-def to_table(type : str, **kwargs):
-    cls : type[AbstractTable] = TABLE_TYPES[type]
+
+def to_table(type: str, **kwargs):
+    cls: type[AbstractTable] = TABLE_TYPES[type]
     return cls(**kwargs)
