@@ -124,7 +124,8 @@ class License(SerializableModel):
     @model_validator(mode="after")
     def has_descriptor(self):
         if self.name is None and self.path is None:
-            raise TypeError('Either `name` or `path` should be specified.')
+            raise ValueError('Either `name` or `path` should be specified.')
+        return self
 
 class Project(SerializableModel):
     """Camera trap project or study that originated the package.
