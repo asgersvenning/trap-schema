@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+from collections.abc import Sequence
 from typing import Annotated, Any, Literal
 
 import numpy as np
@@ -13,13 +14,18 @@ from trap_schema.fields import IsoTimestamp, TableJSON
 class AbstractTableRow(BaseModel):
     @classmethod
     def fields(cls):
-        # Use Pydantic's internal field tracker instead of dataclasses
         return list(cls.model_fields.keys())
+    
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]):
+        return cls.model_validate(data)
+    
+    def to_dict(self):
+        return self.model_dump()
 
     @property
     def data(self):
-        # Let Pydantic dump the data for you natively
-        return self.model_dump()
+        return self.to_dict()
 
     def to_row(self, sep: str = ","):
         row_values = []
@@ -55,13 +61,12 @@ class AbstractTableRow(BaseModel):
             for k, v in zip(field_names, parsed_values)
         }
 
-        return cls.model_validate(data)
+        return cls.from_dict(data)
 
     def to_header(self, sep: str = ","):
         return sep.join(self.fields())
 
 class AbstractTable[K: AbstractTableRow](BaseModel):
-    # Swap dataclass `field` for Pydantic `Field`
     rows: list[K] = Field(default_factory=list)
     _data: dict = PrivateAttr(default_factory=dict)
 
@@ -97,10 +102,35 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
                 raise ValueError(
                     f'Column "{attr}" must contain unique values, but found {len(unique_vals)}/{len(self)} unique values'
                 )
+            
+    @classmethod
+    def from_dict(cls, data: dict[str, Sequence[Any]]) -> "AbstractTable":
+        """Instantiates the table from a columnar dictionary."""
+        if not data:
+            return cls(rows=[])
+            
+        row_cls = cls.get_row_cls()
+        lengths = [len(col) for col in data.values()]
+        
+        if len(set(lengths)) > 1:
+            raise ValueError(f"Heterogeneous column lengths: {dict(zip(data.keys(), lengths))}")
+            
+        nrow = lengths[0] if lengths else 0
+        keys = list(data.keys())
+        
+        rows = [
+            row_cls.from_dict({k: data[k][i] for k in keys}) 
+            for i in range(nrow)
+        ]
+        
+        return cls(rows=rows)
+
+    def to_dict(self):
+        return self._data
 
     @property
     def data(self):
-        return self._data
+        return self.to_dict()
 
     def to_csv(self, path: str | None = None, sep: str = ",", linebreak: str = "\n"):
         lines = [self.rows[0].to_header(sep=sep)] + [row.to_row(sep=sep) for row in self.rows]
