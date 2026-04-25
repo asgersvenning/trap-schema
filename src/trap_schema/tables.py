@@ -336,7 +336,7 @@ class MediaRow(AbstractTableRow):
     timestamp: IsoTimestamp
     """Date and time at which the media file was recorded. Formatted as an ISO 8601 string with timezone
     designator (`YYYY-MM-DDThh:mm:ssZ` or `YYYY-MM-DDThh:mm:ss±hh:mm`)."""
-    filePath: Annotated[str, Field(pattern=r"^(?=^[^./~])(^((?!\.{2}).)*$).*$")]
+    filePath: Annotated[str, Field(pattern=r"^[^./~][^.]*(\.[^.]+)*\.?$")]  # Note: this regex doesn't match the one given in the standard ("^(?=^[^./~])(^((?!\.{2}).)*$).*$") because pydantic doesn't support lookaround
     """URL or relative path to the media file, respectively for externally hosted files or files that are
     part of the package."""
     filePublic: bool

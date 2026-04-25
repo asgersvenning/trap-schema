@@ -1,11 +1,14 @@
 import json
 from datetime import UTC, datetime
+from typing import Any
 
 from geojson import GeoJSON
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import core_schema
 
 
 class IsoTimestamp:
-    def __init__(self, value : str | int | datetime):
+    def __init__(self, value: str | int | datetime):
         if isinstance(value, str) and value.isdigit():
             value = int(value)
         if isinstance(value, int):
@@ -25,6 +28,24 @@ class IsoTimestamp:
 
     def __str__(self):
         return self._timestamp.isoformat()
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            cls._validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda instance: str(instance),
+                when_used='json'
+            )
+        )
+
+    @classmethod
+    def _validate(cls, value: Any) -> "IsoTimestamp":
+        if isinstance(value, cls):
+            return value
+        return cls(value)
 
 
 class TableJSON(dict):
@@ -60,7 +81,46 @@ class TableJSON(dict):
         json_str = json.dumps(self, separators=(',', ':'))
         return '"' + json_str.replace('"', '""') + '"'
 
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            cls._validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda instance: dict(instance), # Serialize back to a standard dict for JSON output
+                when_used='json'
+            )
+        )
+
+    @classmethod
+    def _validate(cls, value: Any) -> "TableJSON":
+        if isinstance(value, cls):
+            return value
+        return cls(value)
+
 
 class GeoJSONWrapper(GeoJSON):
     def to_dict(self):
         return dict(self)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            cls._validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda instance: instance.to_dict(),
+                when_used='json'
+            )
+        )
+
+    @classmethod
+    def _validate(cls, value: Any) -> "GeoJSONWrapper":
+        if isinstance(value, cls):
+            return value
+        # Handle dict unpacking if initialized from a raw dictionary mapping
+        if isinstance(value, dict):
+            return cls(**value)
+        return cls(value)

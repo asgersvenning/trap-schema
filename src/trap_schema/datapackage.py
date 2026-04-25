@@ -1,5 +1,6 @@
 import json
 import os
+import warnings
 from dataclasses import dataclass
 from typing import Literal
 
@@ -8,6 +9,11 @@ from pydantic import Field, model_validator
 from trap_schema.fields import GeoJSONWrapper, IsoTimestamp
 from trap_schema.schema import SerializableModel
 
+warnings.filterwarnings(
+    "ignore", 
+    message='Field name "schema" in "Resource" shadows an attribute in parent', 
+    category=UserWarning
+)
 
 @dataclass(kw_only=True)
 class Resource(SerializableModel):

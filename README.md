@@ -68,6 +68,10 @@ uv run tools/docstrings.py
 
 ### Linting & Testing
 
+```bash
+[uv] ruff check --ignore E501
+```
+
 Coming soon. *(Contributions appreciated!)*
 
 ## License
