@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "An unofficial implementation of the Camtrap DP 1.0.2 datapackage standard with explicit Python dataclasses and pydantic. Intended to help developers with exporting their data to the Camtrap DP 1.0.2 datapackage format."
 readme = "README.md"
 authors = [
-    { name = "asgersvenning", email = "asgersvenning@gmail.com" }
+    { name = "asgersvenning", email = "asgersvenning@ecos.au.dk" }
 ]
 requires-python = ">=3.14"
 dependencies = [
