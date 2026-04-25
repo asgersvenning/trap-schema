@@ -1,11 +1,61 @@
 import json
-from datetime import UTC, datetime
+import warnings
+from datetime import UTC, date, datetime
 from typing import Any
 
 from geojson import GeoJSON
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 
+
+class IsoDate:
+    """
+    A flexible date parser that accepts strings, integers, datetimes, or dates,
+    and aggressively normalizes them to a strict YYYY-MM-DD format.
+    """
+    def __init__(self, value: str | int | datetime | date):
+        if isinstance(value, str) and value.isdigit():
+            value = int(value)
+            
+        if isinstance(value, int):
+            self._date = datetime.fromtimestamp(value, UTC).date()
+        elif isinstance(value, str):
+            # Attempt to grab just the YYYY-MM-DD portion first. 
+            # This safely ignores any trailing time/timezone information like 'T10:00:00Z'
+            try:
+                self._date = date.fromisoformat(value[:10])
+            except ValueError:
+                # Fallback for irregular but valid ISO formats
+                self._date = datetime.fromisoformat(value).date()
+        elif isinstance(value, datetime):
+            self._date = value.date()
+        elif isinstance(value, date):
+            self._date = value
+        else:
+            raise NotImplementedError(
+                f'`IsoDate` only supports strings, integers, datetime and date objects, not {type(value)}'
+            )
+
+    def __str__(self):
+        return self._date.isoformat()
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            cls._validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda instance: str(instance),
+                when_used='json'
+            )
+        )
+
+    @classmethod
+    def _validate(cls, value: Any) -> "IsoDate":
+        if isinstance(value, cls):
+            return value
+        return cls(value)
 
 class IsoTimestamp:
     def __init__(self, value: str | int | datetime):
@@ -65,7 +115,7 @@ class TableJSON(dict):
             except json.JSONDecodeError:
                 if strict:
                     raise
-                print('WARNING: Provided JSON string is not valid:\n\t{}'.format("\n\t".join(value.splitlines())))
+                warnings.warn('Provided JSON string is not valid:\n\t{}'.format("\n\t".join(value.splitlines())), category=UserWarning)
                 self._is_valid = False
                 super().__init__()
         else:

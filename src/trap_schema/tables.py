@@ -72,7 +72,7 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
 
     def __getattr__(self, attr : str):
         if attr.startswith("_"):
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
+            return super().__getattr__(attr)
 
         try:
             return self.data[attr]

@@ -1,11 +1,11 @@
 import json
 import os
 import warnings
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from trap_schema.fields import GeoJSONWrapper, IsoTimestamp
+from trap_schema.fields import GeoJSONWrapper, IsoDate, IsoTimestamp
 from trap_schema.schema import SerializableModel
 
 warnings.filterwarnings(
@@ -28,13 +28,13 @@ class Resource(SerializableModel):
 
     """
     name : Literal["deployments", "media", "observations"]
-    path : Literal["deployments.csv", "media.csv", "obsevations.csv"]
+    path : Literal["deployments.csv", "media.csv", "observations.csv"]
     """Path or URL to the data file."""
     profile : Literal["tabular-data-resource"]
     """[Profile](https://specs.frictionlessdata.io/profiles/) of the resource."""
     format : Literal["csv"]
     """The file format of this resource."""
-    mediaType : Literal["text/csv"]
+    mediatype : Literal["text/csv"]
     encoding : Literal["utf-8"]
     """The file encoding of this resource."""
     schema : Literal["https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/deployments-table-schema.json", "https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/media-table-schema.json", "https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/observations-table-schema.json"]
@@ -47,7 +47,7 @@ def get_resource(type : Literal["deployments", "media", "observations"]):
         path=f"{type}.csv",
         profile="tabular-data-resource",
         format="csv",
-        mediaType="text/csv",
+        mediatype="text/csv",
         encoding="utf-8",
         schema=f"https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/{type}-table-schema.json"
     )
@@ -187,9 +187,9 @@ class Temporal(SerializableModel):
         end: End date of the last (completed) deployment. Formatted as an ISO 8601 string (`YYYY-MM-DD`).
 
     """
-    start : IsoTimestamp
+    start : IsoDate
     """Start date of the first deployment. Formatted as an ISO 8601 string (`YYYY-MM-DD`)."""
-    end : IsoTimestamp
+    end : IsoDate
     """End date of the last (completed) deployment. Formatted as an ISO 8601 string (`YYYY-MM-DD`)."""
 
 class Taxonomic(SerializableModel):
@@ -338,6 +338,20 @@ class DataPackage(SerializableModel):
     references : list[str] | None=None
     """List of references related to the package (e.g. references cited in `package.project.description`).
     References preferably include a DOI."""
+
+    @classmethod
+    def from_dict(cls, data : dict[str, Any]):
+        data.pop("resources", None)
+        profile = data.pop("profile", None)
+        default_profile = cls.model_fields["profile"].default
+        if profile != default_profile:
+            warnings.warn(
+                'Attempting to load a datapackage with a different or missing profile:\n'
+                f'\t{profile}\n'
+                "expected:\n"
+                f'\t{default_profile}'
+            )
+        return super().from_dict(data)
 
     def save(self, dir : str="."):
         path = os.path.join(dir, "datapackage.json")

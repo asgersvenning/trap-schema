@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "asgersvenning", email = "asgersvenning@ecos.au.dk" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "frictionless>=5.19.0",
     "geojson>=3.2.0",

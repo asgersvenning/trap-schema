@@ -9,7 +9,7 @@ import libcst as cst
 import libcst.matchers as m
 from frictionless import Schema
 
-PROFILE_URL = "https://raw.githubusercontent.com/tdwg/camtrap-dp/refs/heads/main/camtrap-dp-profile.json"
+PROFILE_URL = "https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/camtrap-dp-profile.json"
 DEPLOYMENTS_URL = "https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/deployments-table-schema.json"
 MEDIA_URL = "https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/media-table-schema.json"
 OBSERVATIONS_URL = "https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/observations-table-schema.json"
