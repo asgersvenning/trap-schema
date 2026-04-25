@@ -1,7 +1,6 @@
 import json
 import os
 import warnings
-from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -15,7 +14,6 @@ warnings.filterwarnings(
     category=UserWarning
 )
 
-@dataclass(kw_only=True)
 class Resource(SerializableModel):
     """Data Resource.
 
@@ -61,7 +59,6 @@ def standard_resources():
         get_resource("observations")
     ]
 
-@dataclass(kw_only=True)
 class Contributor(SerializableModel):
     """A contributor to this descriptor.
 
@@ -84,7 +81,6 @@ class Contributor(SerializableModel):
     organization : str | None=None
     """An organizational affiliation for this contributor."""
 
-@dataclass(kw_only=True)
 class Source(SerializableModel):
     """A source file.
 
@@ -104,7 +100,6 @@ class Source(SerializableModel):
     version : str | None=None
     """Version of the source."""
 
-@dataclass(kw_only=True)
 class License(SerializableModel):
     """A license for this descriptor.
 
@@ -131,7 +126,6 @@ class License(SerializableModel):
         if self.name is None and self.path is None:
             raise TypeError('Either `name` or `path` should be specified.')
 
-@dataclass(kw_only=True)
 class Project(SerializableModel):
     """Camera trap project or study that originated the package.
 
@@ -185,7 +179,6 @@ class Project(SerializableModel):
     observationLevel : list[Literal["media", "event"]]
     """Level at which observations are provided. See also `observations.observationLevel`."""
 
-@dataclass(kw_only=True)
 class Temporal(SerializableModel):
     """Temporal coverage of the package.
 
@@ -199,7 +192,6 @@ class Temporal(SerializableModel):
     end : IsoTimestamp
     """End date of the last (completed) deployment. Formatted as an ISO 8601 string (`YYYY-MM-DD`)."""
 
-@dataclass(kw_only=True)
 class Taxonomic(SerializableModel):
     """
 
@@ -223,7 +215,6 @@ class Taxonomic(SerializableModel):
     """Common or vernacular names of the taxon, as `languageCode: vernacular name` pairs. Language codes
     should follow ISO 693-3 (e.g. `eng` for English)."""
 
-@dataclass(kw_only=True)
 class RelatedIdentifiers(SerializableModel):
     """Related identifier.
 
@@ -243,7 +234,6 @@ class RelatedIdentifiers(SerializableModel):
     relatedIdentifierType : Literal["ARK", "arXiv", "bibcode", "DOI", "EAN13", "EISSN", "Handle", "IGSN", "ISBN", "ISSN", "ISTC", "LISSN", "LSID", "PMID", "PURL", "UPC", "URL", "URN", "w3id"]
     """Type of the `RelatedIdentifier`."""
 
-@dataclass(kw_only=True)
 class DataPackage(SerializableModel):
     """Data Package is a simple specification for data access and delivery.
 
@@ -348,10 +338,6 @@ class DataPackage(SerializableModel):
     references : list[str] | None=None
     """List of references related to the package (e.g. references cited in `package.project.description`).
     References preferably include a DOI."""
-
-    def __post_init__(self):
-        if self.spatial is not None and type(self.spatial) is not GeoJSONWrapper:
-            self.spatial = GeoJSONWrapper(self.spatial)
 
     def save(self, dir : str="."):
         path = os.path.join(dir, "datapackage.json")

@@ -1,26 +1,25 @@
 import csv
 import io
 import os
-import types
-from dataclasses import dataclass, field, fields
-from typing import Annotated, Literal, TypeVar, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Literal
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from trap_schema.fields import IsoTimestamp, TableJSON
 
 
-@dataclass(kw_only=True)
 class AbstractTableRow(BaseModel):
     @classmethod
     def fields(cls):
-        return list(cls.__dataclass_fields__.keys())
+        # Use Pydantic's internal field tracker instead of dataclasses
+        return list(cls.model_fields.keys())
 
     @property
     def data(self):
-        return {k: getattr(self, k) for k in self.fields()}
+        # Let Pydantic dump the data for you natively
+        return self.model_dump()
 
     def to_row(self, sep: str = ","):
         row_values = []
@@ -40,9 +39,8 @@ class AbstractTableRow(BaseModel):
     @classmethod
     def from_row(cls, row: str, sep: str = ",", headers: list[str] | None = None):
         """
-        Parses a CSV string row into the dataclass.
-        If headers are provided, it maps the CSV columns to the dataclass fields.
-        Otherwise, it assumes the columns match the order of `cls.fields`.
+        Parses a CSV string row. Converts empty CSV strings to None 
+        so Pydantic handles optionals perfectly.
         """
         reader = csv.reader(io.StringIO(row.strip()), delimiter=sep)
         try:
@@ -51,64 +49,24 @@ class AbstractTableRow(BaseModel):
             raise ValueError(f'Provided row string ("{row}") is empty.')
 
         field_names = headers if headers else cls.fields()
-        data = dict(zip(field_names, parsed_values))
+        
+        data = {
+            k: (v if v != "" else None) 
+            for k, v in zip(field_names, parsed_values)
+        }
 
-        return cls.from_dict(data)
-
-    @classmethod
-    def from_dict(cls, data: dict):
-        hints = get_type_hints(cls)
-        init_kwargs = {}
-
-        for field_def in fields(cls):
-            if not field_def.init or field_def.name not in data:
-                continue
-
-            raw_value = data[field_def.name]
-
-            if raw_value == "" or raw_value is None:
-                continue
-
-            field_type = hints[field_def.name]
-            origin = get_origin(field_type)
-            args = get_args(field_type)
-
-            if origin is types.UnionType:
-                actual_types = [t for t in args if t is not type(None)]
-                if actual_types:
-                    field_type = actual_types[0]
-
-            if isinstance(field_type, type) and isinstance(raw_value, field_type):
-                init_kwargs[field_def.name] = raw_value
-                continue
-
-            try:
-                if field_type is bool:
-                    if isinstance(raw_value, str):
-                        init_kwargs[field_def.name] = raw_value.lower() in ("true", "1", "yes", "y", "t")
-                    else:
-                        init_kwargs[field_def.name] = bool(raw_value)
-                elif field_type in (int, float, str):
-                    init_kwargs[field_def.name] = field_type(raw_value)
-                elif isinstance(field_type, type) and field_type not in (list, dict, type(None)):
-                    init_kwargs[field_def.name] = field_type(raw_value)
-                else:
-                    init_kwargs[field_def.name] = raw_value
-            except (ValueError, TypeError) as e:
-                raise ValueError(f"Failed to parse '{raw_value}' as {field_type} for field '{field_def.name}': {e}")
-
-        return cls(**init_kwargs)
+        return cls.model_validate(data)
 
     def to_header(self, sep: str = ","):
         return sep.join(self.fields())
 
-
-K = TypeVar("K")
-
-
-@dataclass(kw_only=True)
 class AbstractTable[K: AbstractTableRow](BaseModel):
-    rows: list[K] = field(default_factory=list)
+    # Swap dataclass `field` for Pydantic `Field`
+    rows: list[K] = Field(default_factory=list)
+    _data: dict = PrivateAttr(default_factory=dict)
+
+    def __getattr__(self, attr : str):
+        return self.data[attr]
 
     @property
     def unique_fields(self) -> tuple[str, ...]:
@@ -121,7 +79,7 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
     def __len__(self):
         return len(self.rows)
 
-    def __post_init__(self):
+    def model_post_init(self, __context: Any) -> None:
         if len(self.rows) == 0:
             raise ValueError("No row data supplied to table. At least one row must be supplied")
 
@@ -193,8 +151,6 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
 
         return cls(rows=rows)
 
-
-@dataclass(kw_only=True)
 class DeploymentRow(AbstractTableRow):
     """Table with camera trap placements (deployments). Includes `deploymentID`, start, end, location and
     camera setup information.
@@ -303,8 +259,6 @@ class DeploymentRow(AbstractTableRow):
     deploymentComments: str | None = None
     """Comments or notes about the deployment."""
 
-
-@dataclass(kw_only=True)
 class MediaRow(AbstractTableRow):
     """Table with media files (images/videos) recorded during deployments (`deploymentID`). Includes
     timestamp and file path.
@@ -354,8 +308,6 @@ class MediaRow(AbstractTableRow):
     mediaComments: str | None = None
     """Comments or notes about the media file."""
 
-
-@dataclass(kw_only=True)
 class ObservationsRow(AbstractTableRow):
     """Table with observations derived from the media files. Associated with deployments (`deploymentID`).
     Observations can mark non-animal events (camera setup, human, blank) or one or more animal
@@ -514,8 +466,6 @@ class ObservationsRow(AbstractTableRow):
     observationComments: str | None = None
     """Comments or notes about the observation."""
 
-
-@dataclass(kw_only=True)
 class DeploymentTable(AbstractTable[DeploymentRow]):
     """Table with camera trap placements (deployments). Includes `deploymentID`, start, end, location and
     camera setup information.
@@ -573,8 +523,6 @@ class DeploymentTable(AbstractTable[DeploymentRow]):
         path = os.path.join(dir, "deployments.csv")
         return self.to_csv(path, **kwargs)
 
-
-@dataclass(kw_only=True)
 class MediaTable(AbstractTable[MediaRow]):
     """Table with media files (images/videos) recorded during deployments (`deploymentID`). Includes
     timestamp and file path.
@@ -609,8 +557,6 @@ class MediaTable(AbstractTable[MediaRow]):
         path = os.path.join(dir, "media.csv")
         return self.to_csv(path, **kwargs)
 
-
-@dataclass(kw_only=True)
 class ObservationsTable(AbstractTable[ObservationsRow]):
     """Table with observations derived from the media files. Associated with deployments (`deploymentID`).
     Observations can mark non-animal events (camera setup, human, blank) or one or more animal
