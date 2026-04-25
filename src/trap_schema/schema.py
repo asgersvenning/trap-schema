@@ -1,8 +1,10 @@
 import dataclasses
-from dataclasses import dataclass
 import types
-from typing import Any, get_origin, get_args, get_type_hints
+from dataclasses import dataclass
+from typing import Any, get_args, get_origin, get_type_hints
+
 from pydantic import BaseModel
+
 
 @dataclass(kw_only=True)
 class SerializableModel(BaseModel):

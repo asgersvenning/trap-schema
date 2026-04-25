@@ -1,10 +1,9 @@
 import json
 import os
-
 from dataclasses import dataclass, field
 from typing import Literal
 
-from trap_schema.fields import IsoTimestamp, GeoJSONWrapper
+from trap_schema.fields import GeoJSONWrapper, IsoTimestamp
 from trap_schema.schema import SerializableModel
 
 

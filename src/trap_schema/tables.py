@@ -1,20 +1,19 @@
 
-from dataclasses import dataclass, field, fields
-
-import os
 import csv
 import io
+import os
+import re
 import types
-from typing import Literal, Any, TypeVar, cast, get_type_hints, get_origin, get_args
 from collections.abc import Callable, Sequence
-import pandas as pd
+from dataclasses import dataclass, field, fields
+from typing import Any, Literal, TypeVar, get_args, get_origin, get_type_hints
+
 import numpy as np
+import pandas as pd
+from pydantic import BaseModel
 
 from trap_schema.fields import IsoTimestamp, TableJSON
 
-import re
-
-from pydantic import BaseModel
 
 @dataclass(kw_only=True)
 class AbstractTableRow(BaseModel):
@@ -200,7 +199,7 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
     @classmethod
     def _rows_from_text(cls, text: str, sep: str = ",", linebreak: str = "\n"):
         if "\n" not in text:
-            with open(text, "r", encoding="utf-8") as f:
+            with open(text, encoding="utf-8") as f:
                 content = f.read()
         else:
             content = text

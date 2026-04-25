@@ -1,0 +1,45 @@
+[project]
+name = "trap-schema"
+version = "0.1.0"
+description = "An unofficial implementation of the Camtrap DP 1.0.2 datapackage standard with explicit Python dataclasses and pydantic. Intended to help developers with exporting their data to the Camtrap DP 1.0.2 datapackage format."
+readme = "README.md"
+authors = [
+    { name = "asgersvenning", email = "asgersvenning@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "geojson>=3.2.0",
+    "numpy>=2.4.4",
+    "pandas>=3.0.2",
+    "pydantic>=2.13.3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-benchmark>=4.0.0",
+]
+notebook = [
+    "ipykernel>=7.2.0",
+    "ipywidgets>=8.1.8",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.3.0",
+    "trap-schema[test,notebook]",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+# E: pycodestyle, F: Pyflakes, UP: pyupgrade, I: isort (sorts imports cleanly)
+select = ["E", "F", "UP", "I"]
+
+
+[build-system]
+requires = ["uv_build>=0.10.7,<0.11.0"]
+build-backend = "uv_build"

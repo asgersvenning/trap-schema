@@ -1,13 +1,15 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from geojson import GeoJSON
+
 
 class IsoTimestamp:
     def __init__(self, value : str | int | datetime):
         if isinstance(value, str) and value.isdigit():
             value = int(value)
         if isinstance(value, int):
-            self._timestamp = datetime.fromtimestamp(value, timezone.utc)
+            self._timestamp = datetime.fromtimestamp(value, UTC)
         elif isinstance(value, str):
             self._timestamp = datetime.fromisoformat(value)
         elif isinstance(value, datetime):
@@ -16,7 +18,10 @@ class IsoTimestamp:
             raise NotImplementedError(
                 f'`IsoTimestamp` only supports strings, integers and existing `datetime.datetime` objects, not {type(value)}'
             )
-        assert self._timestamp.tzinfo is not None, f'IsoTimestamp must be associated with a timezone, but was initialized from {value} of type {type(value)}'
+        if self._timestamp.tzinfo is None:
+            raise ValueError(
+                f'IsoTimestamp must be associated with a timezone, but was initialized from {value} of type {type(value)}'
+            )
 
     def __str__(self):
         return self._timestamp.isoformat()
