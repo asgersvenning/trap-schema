@@ -1,6 +1,7 @@
 import json
 import os
 import warnings
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import Field, model_validator
@@ -353,6 +354,25 @@ class DataPackage(SerializableModel):
                 f'\t{default_profile}'
             )
         return super().from_dict(data)
+    
+    @classmethod
+    def from_json(cls, js : Path | str | bytearray | bytes | dict):
+        if isinstance(js, (str, Path)) and os.path.exists(js):
+            with open(js) as f:
+                data = json.load(f)
+        elif hasattr(js, "read"):
+            data = json.load(js)
+        elif isinstance(js, (str, bytearray, bytes)):
+            data = json.loads(js)
+        elif isinstance(js, dict):
+            data = js
+        else:
+            raise TypeError(
+                f'Unknown type {type(js).__name__}, DataPackage.from_json only supports: `Path | str | bytearray | bytes | dict`'
+            )
+        return cls.from_dict(data)
+        
+        
 
     def save(self, dir : str="."):
         path = os.path.join(dir, "datapackage.json")

@@ -1,6 +1,7 @@
 import json
 import warnings
 from datetime import UTC, date, datetime
+from functools import total_ordering
 from typing import Any
 
 from geojson import GeoJSON
@@ -8,6 +9,7 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 
 
+@total_ordering
 class IsoDate:
     """
     A flexible date parser that accepts strings, integers, datetimes, or dates,
@@ -38,6 +40,30 @@ class IsoDate:
 
     def __str__(self):
         return self._date.isoformat()
+    
+    def __repr__(self):
+        return f'{type(self).__name__}[{str(self)}]'
+    
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, IsoDate):
+            return self._date == other._date
+        if isinstance(other, (date, datetime)):
+            compare_target = other.date() if isinstance(other, datetime) else other
+            return self._date == compare_target
+        if isinstance(other, str):
+            try:
+                return self._date == IsoDate(other)._date
+            except (ValueError, TypeError, NotImplementedError):
+                return False
+        return False
+
+    def __lt__(self, other: Any) -> bool:
+        if isinstance(other, IsoDate):
+            return self._date < other._date
+        if isinstance(other, (date, datetime)):
+            compare_target = other.date() if isinstance(other, datetime) else other
+            return self._date < compare_target
+        return NotImplemented
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -57,6 +83,7 @@ class IsoDate:
             return value
         return cls(value)
 
+@total_ordering
 class IsoTimestamp:
     def __init__(self, value: str | int | datetime):
         if isinstance(value, str) and value.isdigit():
@@ -78,6 +105,28 @@ class IsoTimestamp:
 
     def __str__(self):
         return self._timestamp.isoformat()
+    
+    def __repr__(self):
+        return f'{type(self).__name__}[{str(self)}]'
+    
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, IsoTimestamp):
+            return self._timestamp == other._timestamp
+        if isinstance(other, datetime):
+            return self._timestamp == other
+        if isinstance(other, str):
+            try:
+                return self._timestamp == IsoTimestamp(other)._timestamp
+            except (ValueError, TypeError, NotImplementedError):
+                return False
+        return False
+
+    def __lt__(self, other: Any) -> bool:
+        if isinstance(other, IsoTimestamp):
+            return self._timestamp < other._timestamp
+        if isinstance(other, datetime):
+            return self._timestamp < other
+        return NotImplemented
 
     @classmethod
     def __get_pydantic_core_schema__(

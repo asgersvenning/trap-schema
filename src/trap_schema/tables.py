@@ -20,8 +20,8 @@ class AbstractTableRow(BaseModel):
     def from_dict(cls, data: dict[str, Any]):
         return cls.model_validate(data)
     
-    def to_dict(self):
-        return self.model_dump()
+    def to_dict(self, exclude_none: bool = False, **kwargs):
+        return self.model_dump(mode="json", exclude_none=exclude_none, **kwargs)
 
     @property
     def data(self):
