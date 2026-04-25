@@ -1,29 +1,42 @@
 import argparse
 import os
-import re
 import urllib.request
-from typing import Any
+from textwrap import wrap
+from typing import Any, Literal
 
 import jsonref
 import libcst as cst
 import libcst.matchers as m
+from frictionless import Schema
 
-CLS_ARG_MUTE = {"DataPackage" : ("resources", "profile")}
+PROFILE_URL = "https://raw.githubusercontent.com/tdwg/camtrap-dp/refs/heads/main/camtrap-dp-profile.json"
+DEPLOYMENTS_URL = "https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/deployments-table-schema.json"
+MEDIA_URL = "https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/media-table-schema.json"
+OBSERVATIONS_URL = "https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/observations-table-schema.json"
 
-def extract_class_schemas(schema_node: dict | list, current_key: str = "DataPackage") -> dict:
-    """
-    Recursively maps object keys to their 'properties' dictionaries.
-    Because jsonref handles $refs, we only need to worry about logical operators.
-    """
+CLS_ARG_MUTE = {"DataPackage": ("resources", "profile")}
+
+
+def format_text(text: str, indent: str) -> str:
+    return "\n".join(wrap(text, width=100, subsequent_indent=indent))
+
+
+def extract_profile_schemas(schema_node: dict | list, current_key: str = "DataPackage") -> dict:
+    """Recursively maps object keys to their 'properties' dictionaries from a JSON Profile."""
     class_schemas = {}
 
     def merge_schemas(new_schemas: dict):
         for k, v in new_schemas.items():
-            class_schemas.setdefault(k, {}).update(v)
+            if k not in class_schemas:
+                class_schemas[k] = {"__description__": "", "properties": {}, "__doc_header__": "Arguments:"}
+            class_schemas[k]["properties"].update(v.get("properties", {}))
+            
+            if v.get("__description__") and not class_schemas[k]["__description__"]:
+                class_schemas[k]["__description__"] = v["__description__"]
 
     if isinstance(schema_node, list):
         for item in schema_node:
-            merge_schemas(extract_class_schemas(item, current_key))
+            merge_schemas(extract_profile_schemas(item, current_key))
         return class_schemas
 
     if not isinstance(schema_node, dict):
@@ -31,33 +44,79 @@ def extract_class_schemas(schema_node: dict | list, current_key: str = "DataPack
 
     if "properties" in schema_node:
         key_lower = current_key.lower()
-        merge_schemas({key_lower: schema_node["properties"]})
+        desc = schema_node.get("description") or schema_node.get("title") or ""
         
+        base_schema = {"__description__": desc, "properties": schema_node["properties"], "__doc_header__": "Arguments:"}
+        
+        merge_schemas({key_lower: base_schema})
         if key_lower.endswith('s'):
-            merge_schemas({key_lower[:-1]: schema_node["properties"]})
+            merge_schemas({key_lower[:-1]: base_schema})
             
         for prop_name, prop_value in schema_node["properties"].items():
-            merge_schemas(extract_class_schemas(prop_value, prop_name))
+            merge_schemas(extract_profile_schemas(prop_value, prop_name))
 
     for keyword in ["allOf", "anyOf", "oneOf", "items"]:
         if keyword in schema_node:
-            merge_schemas(extract_class_schemas(schema_node[keyword], current_key))
+            merge_schemas(extract_profile_schemas(schema_node[keyword], current_key))
             
     return class_schemas
 
 
+def fetch_json_schema(url: str) -> dict:
+    """Fetches a JSON schema, resolves $refs, and extracts the profile mapping."""
+    with urllib.request.urlopen(url) as response:
+        profile_schema = jsonref.loads(response.read().decode())
+    return extract_profile_schemas(profile_schema)
+
+
+def fetch_table_schema(urls: dict[str, str]) -> dict:
+    """Uses Frictionless to parse multiple Table Schemas and map them to Row/Table classes."""
+    class_schemas = {}
+    for base_name, url in urls.items():
+        schema = Schema(url)
+        props = {}
+        for field in schema.fields:
+            props[field.name] = {
+                "description": field.description or field.title or ""
+            }
+        
+        desc = schema.description or schema.title or ""
+        
+        class_schemas[f"{base_name}Row".lower()] = {
+            "__description__": desc,
+            "properties": props,
+            "__doc_header__": "Arguments:"
+        }
+        
+        class_schemas[f"{base_name}Table".lower()] = {
+            "__description__": desc,
+            "properties": props,
+            "__doc_header__": "Attributes:"
+        }
+        
+    return class_schemas
+
+
+def get_fetcher(schema_type: str):
+    match schema_type:
+        case "jsonschema":
+            return fetch_json_schema
+        case "frictionless-table-schema":
+            return fetch_table_schema
+        case _:
+            raise ValueError(f"Unknown schema_type: {schema_type}")
+
+
 class DocstringInjector(cst.CSTTransformer):
     """
-    A LibCST Transformer that traverses the Python syntax tree, 
-    identifies targeted classes, and injects/updates docstrings 
-    based on the extracted JSON schema mapping.
+    A LibCST Transformer that traverses the Python syntax tree, identifies 
+    targeted classes, and completely standardizes docstrings based on external schemas.
     """
     def __init__(self, class_schemas: dict, target_classes: tuple[str, ...]):
         self.class_schemas = class_schemas
         self.target_classes = target_classes
 
     def _get_class_fields(self, body_node: cst.IndentedBlock) -> list[str]:
-        """Extracts the names of all annotated assignment fields in the class."""
         fields = []
         for stmt in body_node.body:
             if m.matches(stmt, m.SimpleStatementLine(body=[m.AnnAssign()])):
@@ -66,46 +125,51 @@ class DocstringInjector(cst.CSTTransformer):
                     fields.append(target.value)
         return fields
 
-    def _build_args_text(self, fields: list[str], schema_props: dict, skip : tuple[str, ...]=()) -> str:
-        """Formats the 'Arguments:' section for the class docstring."""
+    def _build_args_text(self, ast_fields: list[str], schema_info: dict, skip: tuple[str, ...]=(), is_table: bool=False) -> str:
+        properties = schema_info.get("properties", {})
+        header = schema_info.get("__doc_header__", "Arguments:")
+        
+        fields_to_doc = list(properties.keys()) if is_table else ast_fields
+            
         args_lines = []
-        for field in fields:
+        for field in fields_to_doc:
             if field in skip:
                 continue
-            if field in schema_props:
-                desc = schema_props[field].get("description") or schema_props[field].get("title", "")
+            if field in properties:
+                desc = properties[field].get("description") or properties[field].get("title", "")
                 desc = desc or "Any."
-                desc_clean = desc.strip().replace('\n', ' ')
+                desc_clean = format_text(desc, "            ")
                 args_lines.append(f"        {field}: {desc_clean}")
-                    
+                
         if args_lines:
-            return "\n\n    Arguments:\n" + "\n".join(args_lines) + "\n\n    "
+            return f"\n\n    {header}\n" + "\n".join(args_lines) + "\n\n    "
         return ""
 
-    def _update_class_docstring(self, body: list[cst.BaseStatement], args_text: str) -> list[cst.BaseStatement]:
-        """Modifies or creates the class-level docstring to include the Arguments section."""
+    def _update_class_docstring(self, body: list[cst.BaseStatement], class_desc: str, args_text: str) -> list[cst.BaseStatement]:
         new_body = list(body)
+        class_desc_formatted = format_text(class_desc, "    ") if class_desc else ""
+        
+        full_text = ""
+        if class_desc_formatted:
+            full_text += class_desc_formatted
+        if args_text:
+            full_text += args_text
+            
+        if not full_text:
+            return new_body
+            
+        new_doc_str = f'"""{full_text}"""'
         
         if new_body and m.matches(new_body[0], m.SimpleStatementLine(body=[m.Expr(value=m.SimpleString())])):
-            old_doc = new_body[0].body[0].value.value
-            
-            # Strip out existing 'Arguments:' section to avoid duplicates
-            base_doc = re.split(r'\n\s*Arguments:', old_doc)[0]
-            base_doc = re.sub(r'\s*"""$', '', base_doc)
-            
-            new_doc_str = f'{base_doc}{args_text}"""'
             new_doc_node = new_body[0].with_deep_changes(new_body[0].body[0].value, value=new_doc_str)
             new_body[0] = new_doc_node
-            
-        elif args_text:
-            new_doc_str = f'"""{args_text}"""'
+        else:
             new_doc_node = cst.SimpleStatementLine(body=[cst.Expr(value=cst.SimpleString(value=new_doc_str))])
             new_body.insert(0, new_doc_node)
             
         return new_body
 
     def _update_field_docstrings(self, body: list[cst.BaseStatement], schema_props: dict) -> list[cst.BaseStatement]:
-        """Injects or updates docstrings immediately following field definitions."""
         final_body = []
         i = 0
         
@@ -123,14 +187,13 @@ class DocstringInjector(cst.CSTTransformer):
                         desc = schema_props[field_name].get("description") or schema_props[field_name].get("title", "")
                         
                         if desc:
-                            desc_clean = desc.strip().replace('\n', ' ')
+                            desc_clean = format_text(desc, "    ")
                             doc_str = f'"""{desc_clean}"""'
                             doc_node = cst.SimpleStatementLine(body=[cst.Expr(value=cst.SimpleString(value=doc_str))])
                             
-                            # Replace existing property docstring if it exists, otherwise insert
                             if i + 1 < len(body) and m.matches(body[i+1], m.SimpleStatementLine(body=[m.Expr(value=m.SimpleString())])):
                                 final_body.append(doc_node)
-                                i += 1  # Skip the old docstring node
+                                i += 1  
                             else:
                                 final_body.append(doc_node)
             i += 1
@@ -138,66 +201,65 @@ class DocstringInjector(cst.CSTTransformer):
         return final_body
 
     def leave_ClassDef(self, original_node: cst.ClassDef, updated_node: cst.ClassDef) -> cst.ClassDef:
-        """Orchestrates the docstring injection process for a targeted class."""
         class_name = original_node.name.value
         
         if class_name not in self.target_classes:
             return updated_node
         
-        # Get fields to omit from "Arguments" section of class docstring
         arg_mute = CLS_ARG_MUTE.get(class_name, tuple())
-            
         class_key = class_name.lower()
-        schema_props = self.class_schemas.get(class_key, {})
-        fields = self._get_class_fields(updated_node.body)
-        args_text = self._build_args_text(fields, schema_props, arg_mute)
-        body_with_class_doc = self._update_class_docstring(list(updated_node.body.body), args_text)
-        final_body = self._update_field_docstrings(body_with_class_doc, schema_props)
+        schema_info = self.class_schemas.get(class_key, {})
+        
+        is_table = class_name.endswith("Table")
+        
+        ast_fields = self._get_class_fields(updated_node.body)
+        args_text = self._build_args_text(ast_fields, schema_info, arg_mute, is_table)
+        
+        class_desc = schema_info.get("__description__", "")
+        body_with_class_doc = self._update_class_docstring(list(updated_node.body.body), class_desc, args_text)
+        
+        final_body = self._update_field_docstrings(body_with_class_doc, schema_info.get("properties", {}))
 
         return updated_node.with_deep_changes(updated_node.body, body=final_body)
 
 
-def add_docstrings_from_schema(source_file: str, output_file: str, classes: tuple[str, ...]):
-    """
-    Orchestrates fetching the schema via jsonref, parsing the code into a CST, 
-    running the transformer, and saving the updated module.
-    """
-    schema_url = "https://raw.githubusercontent.com/tdwg/camtrap-dp/refs/heads/main/camtrap-dp-profile.json"
-    
-    with urllib.request.urlopen(schema_url) as response:
-        schema = jsonref.loads(response.read().decode())
-    
-    class_schemas = extract_class_schemas(schema)
+def process_file(
+    schema_urls: str | dict[str, str], 
+    schema_type: Literal["jsonschema", "frictionless-table-schema"],
+    source_file: str, 
+    output_file: str,
+    classes: tuple[str, ...]
+):
+    if not os.path.exists(source_file):
+        print(f"Skipping {source_file}: file not found.")
+        return
 
-    with open(source_file, "r") as f:
+    schema = get_fetcher(schema_type)(schema_urls)
+
+    with open(source_file, encoding="utf-8") as f:
         source_code = f.read()
 
     module = cst.parse_module(source_code)
-    transformer = DocstringInjector(class_schemas, target_classes=classes)
+    transformer = DocstringInjector(schema, target_classes=classes)
     modified_module = module.visit(transformer)
 
-    with open(output_file, "w") as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         f.write(modified_module.code)
         
-    print(f"Successfully generated docstrings in {output_file}")
+    print(f"Successfully synced docstrings in {output_file}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Update docstrings dynamically based on the Camtrap DP datapackage standard."
+        description="Syncs Python class docstrings with Camtrap DP and Frictionless Data standards."
     )
     parser.add_argument(
         "-i", "--input", type=str, default="src/trap_schema",
-        help="Path to the directory containing the implementation of the Camtrap DP datapackage standard."
+        help="Path to the directory containing the schemas."
     )
     parser.add_argument(
         "-o", "--output", type=str, default=None,
-        help="Path to the directory where the updated files should be created. By default the same as input is used."
-    )
-    parser.add_argument(
-        "-c", "--classes", type=str, nargs="+", 
-        default=["Resource", "Contributor", "Source", "License", "Project", "Temporal", "Taxonomic", "RelatedIdentifiers", "DataPackage"],
-        help="List of Python class names to update."
+        help="Path to the output directory. Overwrites input if omitted."
     )
 
     args, extra = parser.parse_known_args()
@@ -215,10 +277,29 @@ def main():
     out_dir = args.output or src_dir
     os.makedirs(out_dir, exist_ok=True)
 
-    add_docstrings_from_schema(
-        os.path.join(src_dir, "datapackage.py"), 
-        os.path.join(out_dir, "datapackage.py"),
-        classes=tuple(args.classes)
+    # 1. Sync the Profile Schema to datapackage.py
+    process_file(
+        schema_urls=PROFILE_URL,
+        schema_type="jsonschema",
+        source_file=os.path.join(src_dir, "datapackage.py"),
+        output_file=os.path.join(out_dir, "datapackage.py"),
+        classes=("Resource", "Contributor", "Source", "License", "Project", "Temporal", "Taxonomic", "RelatedIdentifiers", "DataPackage")
+    )
+
+    # 2. Sync Frictionless Table Schemas to tables.py
+    process_file(
+        schema_urls={
+            "Deployment": DEPLOYMENTS_URL,
+            "Media": MEDIA_URL,
+            "Observations": OBSERVATIONS_URL
+        },
+        schema_type="frictionless-table-schema",
+        source_file=os.path.join(src_dir, "tables.py"),
+        output_file=os.path.join(out_dir, "tables.py"),
+        classes=(
+            "DeploymentRow", "MediaRow", "ObservationsRow",
+            "DeploymentTable", "MediaTable", "ObservationsTable"
+        )
     )
 
 if __name__ == "__main__":
