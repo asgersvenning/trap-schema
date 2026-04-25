@@ -1,3 +1,5 @@
+[![CI](https://github.com/asgersvenning/trap-schema/actions/workflows/ci.yaml/badge.svg)](https://github.com/asgersvenning/trap-schema/actions/workflows/ci.yaml)
+
 # trap-schema
 
 An unofficial, strictly-typed implementation of the [Camtrap DP 1.0.2](https://camtrap-dp.tdwg.org/) datapackage standard. 
@@ -66,13 +68,17 @@ To update these run:
 uv run tools/docstrings.py
 ```
 
-### Linting & Testing
+### Linting
 
 ```bash
 [uv] ruff check --ignore E501
 ```
 
-Coming soon. *(Contributions appreciated!)*
+### Testing
+
+```bash
+uv run pytest tests
+```
 
 ## License
 
