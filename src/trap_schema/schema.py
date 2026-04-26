@@ -18,9 +18,14 @@ class SerializableModel(AbstractContent):
     
     @classmethod
     def from_json(cls, js : Path | str | bytearray | bytes | dict):
-        if isinstance(js, (str, Path)) and os.path.exists(js):
+        if (
+            (isinstance(js, str) and os.path.exists(js)) or 
+            (isinstance(js, Path) and js.exists())
+        ):
             with open(js) as f:
                 data = json.load(f)
+        elif isinstance(js, Path):
+            raise FileNotFoundError(f'Unable to load {cls.__name__} from missing path: {js}')
         elif hasattr(js, "read"):
             data = json.load(js)
         elif isinstance(js, (str, bytearray, bytes)):
@@ -29,7 +34,7 @@ class SerializableModel(AbstractContent):
             data = js
         else:
             raise TypeError(
-                f'Unknown type {type(js).__name__}, DataPackage.from_json only supports: `Path | str | bytearray | bytes | dict`'
+                f'Unknown type {type(js).__name__}, {cls.__name__}.from_json only supports: `Path | str | bytearray | bytes | dict`'
             )
         return cls.from_dict(data)
     
