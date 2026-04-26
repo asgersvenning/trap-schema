@@ -278,10 +278,9 @@ class DataPackage(SerializableModel):
 
     """
     resources : list[Resource]=Field(default_factory=standard_resources, init=False)
-    """See [Data Package specification](https://specs.frictionlessdata.io/data-package/#resource-
-    information). Camtrap DP further requires each object to be a [Tabular Data
-    Resource](https://specs.frictionlessdata.io/tabular-data-resource/) with a specific `name` and
-    `schema`. See [Data](https://camtrap-dp.tdwg.org/data) for the requirements for those resources."""
+    """See [Data Package specification](https://specs.frictionlessdata.io/data-package/#resource-information). 
+    Camtrap DP further requires each object to be a [Tabular Data Resource](https://specs.frictionlessdata.io/tabular-data-resource/) 
+    with a specific `name` and `schema`. See [Data](https://camtrap-dp.tdwg.org/data) for the requirements for those resources."""
     profile : str=Field(default="https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/camtrap-dp-profile.json", init=False)
     """See [Data Package specification](https://specs.frictionlessdata.io/data-package/#profile). Camtrap
     DP further requires this to be the URL of the used Camtrap DP Profile version (e.g.
@@ -354,27 +353,3 @@ class DataPackage(SerializableModel):
                 f'\t{default_profile}'
             )
         return super().from_dict(data)
-    
-    @classmethod
-    def from_json(cls, js : Path | str | bytearray | bytes | dict):
-        if isinstance(js, (str, Path)) and os.path.exists(js):
-            with open(js) as f:
-                data = json.load(f)
-        elif hasattr(js, "read"):
-            data = json.load(js)
-        elif isinstance(js, (str, bytearray, bytes)):
-            data = json.loads(js)
-        elif isinstance(js, dict):
-            data = js
-        else:
-            raise TypeError(
-                f'Unknown type {type(js).__name__}, DataPackage.from_json only supports: `Path | str | bytearray | bytes | dict`'
-            )
-        return cls.from_dict(data)
-        
-        
-
-    def save(self, dir : str="."):
-        path = os.path.join(dir, "datapackage.json")
-        with open(path, "w") as f:
-            json.dump(self.to_dict(), f)

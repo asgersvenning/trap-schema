@@ -1,13 +1,15 @@
 import csv
 import io
-import os
+import warnings
 from collections.abc import Sequence
-from typing import Annotated, Any, Literal
+from pathlib import Path
+from typing import Annotated, Any, Literal, overload
 
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field, PrivateAttr
 
+from trap_schema.base import AbstractContent
 from trap_schema.fields import IsoTimestamp, TableJSON
 
 
@@ -66,7 +68,7 @@ class AbstractTableRow(BaseModel):
     def to_header(self, sep: str = ","):
         return sep.join(self.fields())
 
-class AbstractTable[K: AbstractTableRow](BaseModel):
+class AbstractTable[K: AbstractTableRow](AbstractContent):
     rows: list[K] = Field(default_factory=list)
     _data: dict = PrivateAttr(default_factory=dict)
 
@@ -81,11 +83,11 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
 
     @property
     def unique_fields(self) -> tuple[str, ...]:
-        raise NotImplementedError(f"`unique_fields` not implemented for {self}")
+        raise NotImplementedError(f"`unique_fields` not implemented for {type(self).__name__}")
 
     @classmethod
     def get_row_cls(cls) -> type[K]:
-        raise NotImplementedError(f"`get_row_cls` not implemented for {cls}")
+        raise NotImplementedError(f"`get_row_cls` not implemented for {cls.__name__}")
 
     def __len__(self):
         return len(self.rows)
@@ -138,34 +140,75 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
     def data(self):
         return self.to_dict()
 
-    def to_csv(self, path: str | None = None, sep: str = ",", linebreak: str = "\n"):
-        lines = [self.rows[0].to_header(sep=sep)] + [row.to_row(sep=sep) for row in self.rows]
-        file = linebreak.join(lines)
+    @overload
+    def to_csv(self, path : None=None, *args, **kwargs) -> str: ...
+    @overload
+    def to_csv(self, path : str | Path, *args, **kwargs) -> Path: ...
+    def to_csv(self, path: str | Path | None = None, sep: str = ",", linebreak: str = "\n"):
+        header = self.rows[0].to_header(sep=sep)
+        row_str = (row.to_row(sep=sep) for row in self.rows)
+
         if path is None:
-            return file
-        with open(path, "w") as f:
-            f.write(file)
+            return f"{header}{linebreak}{linebreak.join(row_str)}"
+
+        if isinstance(path, str):
+            path = Path(path)
+        
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(header + linebreak)
+            f.writelines(row + linebreak for row in row_str)
+                
         return path
 
     @classmethod
-    def _rows_from_text(cls, text: str, sep: str = ",", linebreak: str = "\n"):
-        if "\n" not in text:
-            with open(text, encoding="utf-8") as f:
-                content = f.read()
+    def _rows_from_text(cls, text: str | Path, sep: str = ","):
+        if (
+            isinstance(text, Path) or (
+                isinstance(text, str) and 
+                "\n" not in text and 
+                Path(text).is_file()
+            )
+        ):
+            file_obj = open(text, encoding="utf-8")
         else:
-            content = text
+            file_obj = io.StringIO(text)
 
-        lines = content.split(linebreak)
-        if not lines or not lines[0].strip():
-            raise ValueError("CSV is empty.")
+        with file_obj:
+            reader = csv.reader(file_obj, delimiter=sep)
+            try:
+                headers = next(reader)
+            except StopIteration:
+                raise ValueError("CSV is empty.")
 
-        headers = next(csv.reader(io.StringIO(lines[0]), delimiter=sep))
-        row_cls = cls.get_row_cls()
+            row_cls = cls.get_row_cls()
+            expected_fields = tuple(row_cls.fields())
 
-        if tuple(headers) != tuple(row_cls.fields()):
-            print(f"WARNING: Columns in source CSV:\n\t{headers}\ndo not match expected rows:\n\t{row_cls.fields()}")
+            if tuple(headers) != expected_fields:
+                warnings.warn(
+                    f"Columns in source CSV:\n\t{headers}\n"
+                    f"do not match expected rows:\n\t{expected_fields}",
+                    category=UserWarning,
+                    stacklevel=2
+                )
 
-        return [row_cls.from_row(line, sep=sep, headers=headers) for line in map(str.strip, lines[1:]) if line]
+            rows : list[K] = []
+            blank_lines = 0
+
+            # Start enumeration at 2: 1-indexing + header row
+            for line_num, parsed_values in enumerate(reader, start=2):
+                if not parsed_values:
+                    blank_lines += 1
+                    continue
+                # If we see valid data AFTER a blank line, the blank line was in the middle
+                if blank_lines > 0:
+                    raise ValueError(
+                        f"Malformed CSV: Encountered {blank_lines} unexpected blank line(s) before row {line_num}."
+                    )
+
+                data = {k: (v if v != "" else None) for k, v in zip(headers, parsed_values)}
+                rows.append(row_cls.from_dict(data))
+
+        return rows
 
     @classmethod
     def _rows_from_pandas(cls, df: pd.DataFrame):
@@ -174,20 +217,31 @@ class AbstractTable[K: AbstractTableRow](BaseModel):
         return list(map(row_cls.from_dict, df.replace({np.nan: None, pd.NA: None}).to_dict(orient="records")))
 
     @classmethod
-    def from_table(cls, table: str | pd.DataFrame, sep: str = ",", linebreak: str = "\n"):
+    def from_table(cls, table: str | Path | pd.DataFrame, sep: str = ","):
         """
         Reads tabular data and instantiates the Table and all underlying rows.
         """
-        if isinstance(table, str):
-            rows = cls._rows_from_text(table, sep=sep, linebreak=linebreak)
+        if isinstance(table, (str, Path)):
+            rows = cls._rows_from_text(table, sep=sep)
         elif isinstance(table, pd.DataFrame):
             rows = cls._rows_from_pandas(table)
         else:
             raise NotImplementedError(f"`from_table` not implemented for {(type(table))}.")
 
         return cls(rows=rows)
+    
+    @classmethod
+    def file_name(cls):
+        return cls.__name__.lower().removesuffix("table") + ".csv"
+    
+    @classmethod
+    def load(cls, path : str | Path, **kwargs):
+        return cls.from_table(cls.file_path(path), **kwargs)
 
-class DeploymentRow(AbstractTableRow):
+    def save(self, dir: str | Path = ".", **kwargs):
+        return self.to_csv(self.file_path(dir), **kwargs)
+
+class DeploymentsRow(AbstractTableRow):
     """Table with camera trap placements (deployments). Includes `deploymentID`, start, end, location and
     camera setup information.
 
@@ -502,7 +556,7 @@ class ObservationsRow(AbstractTableRow):
     observationComments: str | None = None
     """Comments or notes about the observation."""
 
-class DeploymentTable(AbstractTable[DeploymentRow]):
+class DeploymentsTable(AbstractTable[DeploymentsRow]):
     """Table with camera trap placements (deployments). Includes `deploymentID`, start, end, location and
     camera setup information.
 
@@ -553,11 +607,7 @@ class DeploymentTable(AbstractTable[DeploymentRow]):
 
     @classmethod
     def get_row_cls(self):
-        return DeploymentRow
-
-    def save(self, dir: str = ".", **kwargs):
-        path = os.path.join(dir, "deployments.csv")
-        return self.to_csv(path, **kwargs)
+        return DeploymentsRow
 
 class MediaTable(AbstractTable[MediaRow]):
     """Table with media files (images/videos) recorded during deployments (`deploymentID`). Includes
@@ -588,10 +638,6 @@ class MediaTable(AbstractTable[MediaRow]):
     @classmethod
     def get_row_cls(self):
         return MediaRow
-
-    def save(self, dir: str = ".", **kwargs):
-        path = os.path.join(dir, "media.csv")
-        return self.to_csv(path, **kwargs)
 
 class ObservationsTable(AbstractTable[ObservationsRow]):
     """Table with observations derived from the media files. Associated with deployments (`deploymentID`).
@@ -671,13 +717,9 @@ class ObservationsTable(AbstractTable[ObservationsRow]):
     def get_row_cls(self):
         return ObservationsRow
 
-    def save(self, dir: str = ".", **kwargs):
-        path = os.path.join(dir, "observations.csv")
-        return self.to_csv(path, **kwargs)
-
 
 TABLE_TYPES: dict[str, type[AbstractTable]] = {
-    "deployments.csv": DeploymentTable,
+    "deployments.csv": DeploymentsTable,
     "media.csv": MediaTable,
     "observations.csv": ObservationsTable,
 }
