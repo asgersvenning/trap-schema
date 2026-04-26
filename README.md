@@ -28,11 +28,31 @@ uv add trap-schema
 
 ## Quick Start
 
+`trap-schema` is made primarily to facilate immediate errors via static analysis in your IDE or exceptions, so the following example does not show how you actually transform your data, merely how the interface for the containers in `trap-schema` are supposed to be used.
+
 ```py
-from trap_schema.tables import DeploymentRow, DeploymentTable
+# All Camtrap DP 1.0.2 Resources
+from trap_schema import (
+    Contributor,
+    DataPackage,
+    Dataset,
+    DeploymentsRow,
+    DeploymentsTable,
+    License,
+    MediaRow,
+    MediaTable,
+    ObservationsRow,
+    ObservationsTable,
+    Project,
+    RelatedIdentifiers,
+    Resource,
+    Source,
+    Taxonomic,
+    Temporal,
+)
 
 # 1. Create validated rows
-deployment = DeploymentRow(
+deployments_row = DeploymentsRow(
     deploymentID="dep_001",
     latitude=56.2,
     longitude=10.4,
@@ -41,10 +61,65 @@ deployment = DeploymentRow(
 )
 
 # 2. Group into a Table (validates unique keys and types)
-table = DeploymentTable(rows=[deployment])
+deployments = DeploymentsTable(rows=[deployment])
 
-# 3. Export to Camtrap DP standard CSV
-table.save("out_dir")
+# 3. Export table 
+# (all file-backed resources share a `.save()` and `.load()` function for reading and loading to/from file)
+deployments.save("out_dir")
+
+# 4. Do the same for the other tables
+media_data = ...
+observations_data = ...
+# (all row types can be created from a dictionary)
+media_rows = [MediaRow.from_dict(data) for data in media_data]
+observation_rows = [ObservationsRow.from_dict(data) for data in observations_data]
+# (all tables are created via a list of rows)
+media = MediaTable(rows=media_rows)
+observations = ObservationsTable(rows=observations_rows)
+
+# 5. Create the datapackage object
+# (the `resources` and `profile` fields cannot be changed since they are "hardcoded" via the standard)
+# * technically the standard allows additional resources, but this is a TODO for trap-schema
+datapackage = DataPackage(
+    name="my_dataset",
+    id="...",
+    ...,
+    contributors=[
+        Contributor(
+            ...
+        ),
+        Contributor(
+            ...
+        )
+    ],
+    ...
+) # See the docstring and/or https://camtrap-dp.tdwg.org/metadata/ for further details
+
+# 6. Create the dataset
+dataset = Dataset(
+    datapackage=datapackage,
+    deployments=deployments,
+    media=media,
+    observations=observations
+)
+
+# 7. Export dataset
+dataset.save("<output_dir>")
+
+# 8. (optional) Load dataset
+# You can also load an existing dataset via:
+new_dataset = Dataset.load("<dataset_dir>")
+# or individual ressources
+new_observations = ObservationsTable.load("<dataset_dir>")
+# or
+new_observations = ObservationsTable.load("<dataset_dir>/observations.csv")
+# etc.
+```
+
+Run validation with `frictionless` via:
+
+```bash
+uvx frictionless validate <output_dir>/datapackage.json
 ```
 
 ## Development
