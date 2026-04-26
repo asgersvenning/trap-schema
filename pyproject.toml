@@ -23,6 +23,12 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.urls]
+Homepage = "https://github.com/asgersvenning/trap-schema" # TODO
+Repository = "https://github.com/asgersvenning/trap-schema"
+Documentation = "https://github.com/asgersvenning/trap-schema" # TODO
+"Issue Tracker" = "https://github.com/asgersvenning/trap-schema/issues"
+
 [project.optional-dependencies]
 test = [
     "pytest>=8.0.0",
